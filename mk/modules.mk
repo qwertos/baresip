@@ -7,6 +7,7 @@
 #
 #   USE_ALSA          ALSA audio driver
 #   USE_AMR           Adaptive Multi-Rate (AMR) audio codec
+#   USE_AVCAPTURE     AVFoundation video capture for OSX/iOS
 #   USE_BV32          BroadVoice32 Wideband Audio codec
 #   USE_CAIRO         Cairo module
 #   USE_CONS          Console input driver
@@ -64,6 +65,7 @@ USE_AMR   := $(shell [ -d $(SYSROOT)/include/opencore-amrnb ] || \
 USE_BV32  := $(shell [ -f $(SYSROOT)/include/bv32/bv32.h ] || \
 	[ -f $(SYSROOT)/local/include/bv32/bv32.h ] && echo "yes")
 USE_CAIRO  := $(shell [ -f $(SYSROOT)/include/cairo/cairo.h ] || \
+	[ -f $(SYSROOT)/local/include/cairo/cairo.h ] || \
 	[ -f $(SYSROOT_ALT)/include/cairo/cairo.h ] && echo "yes")
 USE_DTLS := $(shell [ -f $(SYSROOT)/include/openssl/dtls1.h ] || \
 	[ -f $(SYSROOT)/local/include/openssl/dtls1.h ] || \
@@ -98,6 +100,7 @@ USE_ILBC := $(shell [ -f $(SYSROOT)/include/iLBC_define.h ] || \
 USE_ISAC := $(shell [ -f $(SYSROOT)/include/isac.h ] || \
 	[ -f $(SYSROOT)/local/include/isac.h ] && echo "yes")
 USE_MPG123  := $(shell [ -f $(SYSROOT)/include/mpg123.h ] || \
+	[ -f $(SYSROOT)/local/include/mpg123.h ] || \
 	[ -f $(SYSROOT_ALT)/include/mpg123.h ] && echo "yes")
 USE_OPUS := $(shell [ -f $(SYSROOT)/include/opus/opus.h ] || \
 	[ -f $(SYSROOT_ALT)/include/opus/opus.h ] || \
@@ -154,8 +157,12 @@ USE_UUID  := $(shell [ -f $(SYSROOT)/include/uuid/uuid.h ] && echo "yes")
 USE_V4L  := $(shell [ -f $(SYSROOT)/include/libv4l1.h ] || \
 	[ -f $(SYSROOT)/local/include/libv4l1.h ] \
 	&& echo "yes")
-USE_V4L2  := $(shell [ -f $(SYSROOT)/include/libv4l2.h ] || \
+HAVE_LIBV4L2 := $(shell [ -f $(SYSROOT)/include/libv4l2.h ] || \
 	[ -f $(SYSROOT)/local/include/libv4l2.h ] \
+	&& echo "yes")
+USE_V4L2 := $(shell [ -f $(SYSROOT)/include/linux/videodev2.h ] || \
+	[ -f $(SYSROOT)/local/include/linux/videodev2.h ] || \
+	[ -f $(SYSROOT)/include/sys/videoio.h ] \
 	&& echo "yes")
 USE_X11 := $(shell [ -f $(SYSROOT)/include/X11/Xlib.h ] || \
 	[ -f $(SYSROOT)/local/include/X11/Xlib.h ] || \
@@ -182,11 +189,22 @@ endif
 
 endif
 
+
+USE_AVFOUNDATION := \
+	$(shell [ -d /System/Library/Frameworks/AVFoundation.framework ] \
+		&& echo "yes")
+
+ifneq ($(USE_AVFOUNDATION),)
+USE_AVCAPTURE := yes
+else
 USE_QTCAPTURE := yes
+endif
+
 
 endif
 ifeq ($(OS),linux)
 USE_EVDEV := $(shell [ -f $(SYSROOT)/include/linux/input.h ] && echo "yes")
+MODULES   += dtmfio
 endif
 ifeq ($(OS),win32)
 USE_WINWAVE := yes
@@ -200,6 +218,7 @@ endif
 MODULES   += $(EXTRA_MODULES)
 MODULES   += stun turn ice natbd auloop presence
 MODULES   += menu contact vumeter mwi account natpmp httpd
+MODULES   += selftest
 ifneq ($(HAVE_PTHREAD),)
 MODULES   += aubridge
 endif
@@ -216,6 +235,9 @@ MODULES   += alsa
 endif
 ifneq ($(USE_AMR),)
 MODULES   += amr
+endif
+ifneq ($(USE_AVCAPTURE),)
+MODULES   += avcapture
 endif
 ifneq ($(USE_BV32),)
 MODULES   += bv32
@@ -347,9 +369,3 @@ endif
 ifneq ($(USE_X11),)
 MODULES   += x11 x11grab
 endif
-
-ifeq ($(OS),linux)
-MODULES   += dtmfio
-endif
-
-

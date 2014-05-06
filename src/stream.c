@@ -37,7 +37,7 @@ struct stream {
 	struct menc_media *mes;  /**< Media Encryption media state          */
 	struct metric metric_tx; /**< Metrics for transmit                  */
 	struct metric metric_rx; /**< Metrics for receiving                 */
-	char *cname;
+	char *cname;             /**< RTCP Canonical end-point identifier   */
 	uint32_t ssrc_rx;        /**< Incoming syncronizing source          */
 	uint32_t pseq;           /**< Sequence number for incoming RTP      */
 	int pt_enc;              /**< Payload type for encoding             */
@@ -72,15 +72,19 @@ static inline int lostcalc(struct stream *s, uint16_t seq)
 }
 
 
-static void print_rtp_stats(struct stream *s)
+static void print_rtp_stats(const struct stream *s)
 {
 	info("\n%-9s       Transmit:     Receive:\n"
 	     "packets:        %7u      %7u\n"
-	     "avg. bitrate:   %7.1f      %7.1f  (kbit/s)\n",
+	     "avg. bitrate:   %7.1f      %7.1f  (kbit/s)\n"
+	     "errors:         %7d      %7d\n"
+	     ,
 	     sdp_media_name(s->sdp),
 	     s->metric_tx.n_packets, s->metric_rx.n_packets,
 	     1.0*metric_avg_bitrate(&s->metric_tx)/1000,
-	     1.0*metric_avg_bitrate(&s->metric_rx)/1000);
+	     1.0*metric_avg_bitrate(&s->metric_rx)/1000,
+	     s->metric_tx.n_err, s->metric_rx.n_err
+	     );
 
 	if (s->rtcp_stats.tx.sent || s->rtcp_stats.rx.sent) {
 
@@ -561,7 +565,8 @@ int stream_debug(struct re_printf *pf, const struct stream *s)
 			  s->pt_enc);
 
 	sdp_media_raddr_rtcp(s->sdp, &rrtcp);
-	err |= re_hprintf(pf, " remote: %J/%J\n",
+	err |= re_hprintf(pf, " local: %J, remote: %J/%J\n",
+			  sdp_media_laddr(s->sdp),
 			  sdp_media_raddr(s->sdp), &rrtcp);
 
 	err |= rtp_debug(pf, s->rtp);

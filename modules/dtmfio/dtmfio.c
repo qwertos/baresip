@@ -52,6 +52,7 @@
  * +   Clean up build output so there aren't errors regarding unused vars
  */
 
+#include <unistd.h>
 #include <stdio.h>
 #include <re.h>
 #include <baresip.h>
@@ -65,6 +66,9 @@ static const char *DTMF_OUT = "/tmp/dtmf.out";
 
 static void dtmf_handler(struct call *call, char key, void *arg)
 {
+	(void)call;
+	(void)arg;
+
 	if ( key != 0 ) {
 		fprintf(fd, "%c", key);
 		fflush(fd);
@@ -78,6 +82,10 @@ static void ua_event_handler(struct ua *ua,
 			     const char *prm,
 			     void *arg )
 {
+	(void)ua;
+	(void)prm;
+	(void)arg;
+
 	if ( ev == UA_EVENT_CALL_ESTABLISHED ) {
 		fprintf(fd, "E");
 		fflush(fd);
@@ -88,8 +96,6 @@ static void ua_event_handler(struct ua *ua,
 		fprintf(fd, "F");
 		fflush(fd);
 	}
-
-	return;
 }
 
 

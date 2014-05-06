@@ -74,6 +74,7 @@ void call_set_handlers(struct call *call, call_event_h *eh,
 		       call_dtmf_h *dtmfh, void *arg);
 uint16_t      call_scode(const struct call *call);
 uint32_t      call_duration(const struct call *call);
+uint32_t      call_setup_duration(const struct call *call);
 const char   *call_peeruri(const struct call *call);
 const char   *call_peername(const struct call *call);
 const char   *call_localuri(const struct call *call);
@@ -256,13 +257,12 @@ struct ausrc_st;
 
 /** Audio Source parameters */
 struct ausrc_prm {
-	int        fmt;         /**< Audio format (enum aufmt) */
 	uint32_t   srate;       /**< Sampling rate in [Hz] */
 	uint8_t    ch;          /**< Number of channels    */
 	uint32_t   ptime;       /**< Wanted packet-time in [ms] */
 };
 
-typedef void (ausrc_read_h)(const uint8_t *buf, size_t sz, void *arg);
+typedef void (ausrc_read_h)(const int16_t *sampv, size_t sampc, void *arg);
 typedef void (ausrc_error_h)(int err, const char *str, void *arg);
 
 typedef int  (ausrc_alloc_h)(struct ausrc_st **stp, struct ausrc *ausrc,
@@ -288,13 +288,12 @@ struct auplay_st;
 
 /** Audio Player parameters */
 struct auplay_prm {
-	int        fmt;         /**< Audio format (enum aufmt) */
 	uint32_t   srate;       /**< Sampling rate in [Hz] */
 	uint8_t    ch;          /**< Number of channels    */
 	uint32_t   ptime;       /**< Wanted packet-time in [ms] */
 };
 
-typedef bool (auplay_write_h)(uint8_t *buf, size_t sz, void *arg);
+typedef void (auplay_write_h)(int16_t *sampv, size_t sampc, void *arg);
 
 typedef int  (auplay_alloc_h)(struct auplay_st **stp, struct auplay *ap,
 			      struct auplay_prm *prm, const char *device,

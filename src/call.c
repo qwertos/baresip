@@ -62,6 +62,7 @@ struct call {
 	struct tmr tmr_inv;       /**< Timer for incoming calls             */
 	struct tmr tmr_dtmf;      /**< Timer for incoming DTMF events       */
 	time_t time_start;        /**< Time when call started               */
+	time_t time_conn;         /**< Time when call initiated             */
 	time_t time_stop;         /**< Time when call stopped               */
 	bool got_offer;           /**< Got SDP Offer from Peer              */
 	struct mnat_sess *mnats;  /**< Media NAT session                    */
@@ -631,7 +632,10 @@ int call_hangup(struct call *call, uint16_t scode, const char *reason)
 		break;
 
 	default:
-		info("call: terminate call with %s\n", call->peer_uri);
+		info("call: terminate call '%s' with %s\n",
+		     sip_dialog_callid(sipsess_dialog(call->sess)),
+		     call->peer_uri);
+
 		call->sess = mem_deref(call->sess);
 		break;
 	}
@@ -694,7 +698,7 @@ int call_answer(struct call *call, uint16_t scode)
 		return err;
 
 	err = sipsess_answer(call->sess, scode, "Answering", desc,
-                             "Allow: %s\r\n", uag_allowed_methods());
+			     "Allow: %s\r\n", uag_allowed_methods());
 
 	mem_deref(desc);
 
@@ -954,7 +958,8 @@ static int sipsess_answer_handler(const struct sip_msg *msg, void *arg)
 
 	MAGIC_CHECK(call);
 
-	(void)sdp_decode_multipart(&msg->ctype, msg->mb);
+	if (msg_ctype_cmp(&msg->ctyp, "multipart", "mixed"))
+		(void)sdp_decode_multipart(&msg->ctyp.params, msg->mb);
 
 	err = sdp_decode(call->sdp, msg->mb, false);
 	if (err) {
@@ -1030,7 +1035,7 @@ static void sipsess_info_handler(struct sip *sip, const struct sip_msg *msg,
 {
 	struct call *call = arg;
 
-	if (!pl_strcasecmp(&msg->ctype, "application/dtmf-relay")) {
+	if (msg_ctype_cmp(&msg->ctyp, "application", "dtmf-relay")) {
 
 		struct pl body, sig, dur;
 		int err;
@@ -1063,8 +1068,8 @@ static void sipsess_info_handler(struct sip *sip, const struct sip_msg *msg,
 		}
 	}
 #ifdef USE_VIDEO
-	else if (!pl_strcasecmp(&msg->ctype,
-				"application/media_control+xml")) {
+	else if (msg_ctype_cmp(&msg->ctyp,
+			       "application", "media_control+xml")) {
 		call_handle_info_req(call, msg);
 		(void)sip_reply(sip, msg, 200, "OK");
 	}
@@ -1115,7 +1120,7 @@ static void sipsess_refer_handler(struct sip *sip, const struct sip_msg *msg,
 			      ua_cuser(call->ua), "message/sipfrag",
 			      auth_handler, call->acc, true,
 			      sipnot_close_handler, call,
-	                      "Allow: %s\r\n", uag_allowed_methods());
+			      "Allow: %s\r\n", uag_allowed_methods());
 	if (err) {
 		warning("call: refer: sipevent_accept failed: %m\n", err);
 		return;
@@ -1166,6 +1171,21 @@ static void sipsess_close_handler(int err, const struct sip_msg *msg,
 }
 
 
+static bool have_common_audio_codecs(const struct call *call)
+{
+	const struct sdp_format *sc;
+	struct aucodec *ac;
+
+	sc = sdp_media_rformat(stream_sdpmedia(audio_strm(call->audio)), NULL);
+	if (!sc)
+		return false;
+
+	ac = sc->data;
+
+	return ac != NULL;
+}
+
+
 int call_accept(struct call *call, struct sipsess_sock *sess_sock,
 		const struct sip_msg *msg)
 {
@@ -1194,6 +1214,21 @@ int call_accept(struct call *call, struct sipsess_sock *sess_sock,
 			return err;
 
 		call->got_offer = true;
+
+		/* Check if we have any common audio codecs, after
+		 * the SDP offer has been parsed
+		 */
+		if (!have_common_audio_codecs(call)) {
+			info("call: no common audio codecs - rejected\n");
+
+			sip_treply(NULL, uag_sip(), msg,
+				   488, "Not Acceptable Here");
+
+			call_event_handler(call, CALL_EVENT_CLOSED,
+					   "No audio codecs");
+
+			return 0;
+		}
 	}
 
 	err = sipsess_accept(&call->sess, sess_sock, msg, 180, "Ringing",
@@ -1227,8 +1262,8 @@ static void sipsess_progr_handler(const struct sip_msg *msg, void *arg)
 
 	MAGIC_CHECK(call);
 
-	info("call: SIP Progress: %u %r (%r)\n",
-	     msg->scode, &msg->reason, &msg->ctype);
+	info("call: SIP Progress: %u %r (%r/%r)\n",
+	     msg->scode, &msg->reason, &msg->ctyp.type, &msg->ctyp.subtype);
 
 	if (msg->scode <= 100)
 		return;
@@ -1241,12 +1276,13 @@ static void sipsess_progr_handler(const struct sip_msg *msg, void *arg)
 	 * we must also handle changes to/from 180 and 183,
 	 * so we reset the media-stream/ringback each time.
 	 */
-	if (!pl_strcasecmp(&msg->ctype, "application/sdp")
+	if (msg_ctype_cmp(&msg->ctyp, "application", "sdp")
 	    && mbuf_get_left(msg->mb)
 	    && !sdp_decode(call->sdp, msg->mb, false)) {
 		media = true;
 	}
-	else if (!sdp_decode_multipart(&msg->ctype, msg->mb) &&
+	else if (msg_ctype_cmp(&msg->ctyp, "multipart", "mixed") &&
+		 !sdp_decode_multipart(&msg->ctyp.params, msg->mb) &&
 		 !sdp_decode(call->sdp, msg->mb, false)) {
 		media = true;
 	}
@@ -1307,6 +1343,9 @@ static int send_invite(struct call *call)
 		warning("call: sipsess_connect: %m\n", err);
 	}
 
+	/* save call setup timer */
+	call->time_conn = time(NULL);
+
 	mem_deref(desc);
 
 	return err;
@@ -1326,6 +1365,22 @@ uint32_t call_duration(const struct call *call)
 		return 0;
 
 	return (uint32_t)(time(NULL) - call->time_start);
+}
+
+
+/**
+ * Get the current call setup time in seconds
+ *
+ * @param call  Call object
+ *
+ * @return Call setup in seconds
+ */
+uint32_t call_setup_duration(const struct call *call)
+{
+	if (!call || !call->time_conn || call->time_conn <= 0 )
+		return 0;
+
+	return (uint32_t)(call->time_start - call->time_conn);
 }
 
 

@@ -474,15 +474,15 @@ int ua_alloc(struct ua **uap, const char *aor)
 	ua->af   = AF_INET;
 #endif
 
-	/* generate a unique contact-user, this is needed to route
-	   incoming requests when using multiple useragents */
-	err = re_sdprintf(&ua->cuser, "%p", ua);
-	if (err)
-		goto out;
-
 	/* Decode SIP address */
 
 	err = account_alloc(&ua->acc, aor);
+	if (err)
+		goto out;
+
+	/* generate a unique contact-user, this is needed to route
+	   incoming requests when using multiple useragents */
+	err = re_sdprintf(&ua->cuser, "%r-%p", &ua->acc->luri.user, ua);
 	if (err)
 		goto out;
 
@@ -1424,14 +1424,14 @@ struct ua *uag_find_param(const char *name, const char *value)
 
 		if (value) {
 
-			if (0 == sip_param_decode(&laddr->params, name, &val)
+			if (0 == msg_param_decode(&laddr->params, name, &val)
 			    &&
 			    0 == pl_strcasecmp(&val, value)) {
 				return ua;
 			}
 		}
 		else {
-			if (0 == sip_param_exists(&laddr->params, name, &val))
+			if (0 == msg_param_exists(&laddr->params, name, &val))
 				return ua;
 		}
 	}
